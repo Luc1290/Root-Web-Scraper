@@ -3,7 +3,7 @@ name: Deploy to Fly.io
 on:
   push:
     branches:
-      - main  # ou la branche de ton choix
+      - master
 
 jobs:
   deploy:
