@@ -21,7 +21,7 @@ app.post('/scrape', async (req, res) => {
     });
 
     // Nouveau sélecteur Brave Search
-    const selector = 'a.result-title';
+    const selector = 'h3 a';
     await page.waitForSelector(selector, { timeout: 10000 });
 
     const href = await page.getAttribute(selector, 'href');
