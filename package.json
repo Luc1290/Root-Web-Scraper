@@ -1,0 +1,13 @@
+{
+  "name": "root-web-scraper",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "playwright": "^1.51.1"
+  }
+}
