@@ -46,7 +46,7 @@ app.post("/scrape", async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 5123;
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ WebScraper en ligne sur port ${PORT}`);
 });
+
