@@ -7,7 +7,12 @@ app.use(express.json());
 app.post('/scrape', async (req, res) => {
   const { query } = req.body;
 
-  if (!query) return res.status(400).json({ error: 'Missing query' });
+  if (!query) {
+    console.error('[SCRAPER] ❌ Requête sans query reçue');
+    return res.status(400).json({ error: 'Missing query' });
+  }
+
+  console.log(`[SCRAPER] 🔍 Requête reçue pour : "${query}"`);
 
   const browser = await chromium.launch({ args: ['--no-sandbox'] });
   const page = await browser.newPage();
@@ -20,7 +25,7 @@ app.post('/scrape', async (req, res) => {
     await page.waitForSelector(selector);
     const href = await page.getAttribute(selector, 'href');
 
-    if (!href) throw new Error('Aucun lien trouvé');
+    if (!href) throw new Error('Aucun lien trouvé sur DuckDuckGo');
 
     await page.goto(href, { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(1500);
@@ -33,6 +38,7 @@ app.post('/scrape', async (req, res) => {
       content: content.slice(0, 10000)
     });
   } catch (err) {
+    console.error('[SCRAPER] ❌ Erreur lors du scraping :', err.message);
     await browser.close();
     res.status(500).json({ error: err.message });
   }
