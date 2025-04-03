@@ -7,28 +7,28 @@ app.use(express.json());
 app.post('/scrape', async (req, res) => {
   const { query } = req.body;
 
-  if (!query) {
-    console.error('[SCRAPER] ❌ Requête sans query reçue');
-    return res.status(400).json({ error: 'Missing query' });
-  }
-
   console.log(`[SCRAPER] 🔍 Requête reçue pour : "${query}"`);
+
+  if (!query) return res.status(400).json({ error: 'Missing query' });
 
   const browser = await chromium.launch({ args: ['--no-sandbox'] });
   const page = await browser.newPage();
 
   try {
-    await page.goto(`https://duckduckgo.com/?q=${encodeURIComponent(query)}`);
-    await page.waitForTimeout(1500);
+    await page.goto(`https://search.brave.com/search?q=${encodeURIComponent(query)}`, {
+      waitUntil: 'domcontentloaded',
+      timeout: 30000,
+    });
 
-    const selector = 'a.result__a';
-    await page.waitForSelector(selector);
+    // Nouveau sélecteur Brave Search
+    const selector = 'a.result-title';
+    await page.waitForSelector(selector, { timeout: 10000 });
+
     const href = await page.getAttribute(selector, 'href');
+    if (!href) throw new Error('Aucun lien trouvé');
 
-    if (!href) throw new Error('Aucun lien trouvé sur DuckDuckGo');
-
-    await page.goto(href, { waitUntil: 'domcontentloaded' });
-    await page.waitForTimeout(1500);
+    await page.goto(href, { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await page.waitForTimeout(1000);
 
     const content = await page.evaluate(() => document.body.innerText);
     await browser.close();
@@ -38,8 +38,8 @@ app.post('/scrape', async (req, res) => {
       content: content.slice(0, 10000)
     });
   } catch (err) {
-    console.error('[SCRAPER] ❌ Erreur lors du scraping :', err.message);
     await browser.close();
+    console.error(`[SCRAPER] ❌ Erreur lors du scraping : ${err.message}`);
     res.status(500).json({ error: err.message });
   }
 });
