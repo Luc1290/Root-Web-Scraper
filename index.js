@@ -1,5 +1,5 @@
-const express = require("express");
-const { chromium } = require("playwright");
+import express from "express";
+import { chromium } from "playwright";
 
 const app = express();
 app.use(express.json());
