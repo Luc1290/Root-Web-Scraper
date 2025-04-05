@@ -131,6 +131,88 @@ const extractMainContent = async (page) => {
     });
 };
 
+// Fonction spécifique pour extraire des données météo depuis Météo-France
+const extractMeteoFranceData = async (page) => {
+    return await page.evaluate(() => {
+        // Fonction pour trouver les éléments contenant des informations météo
+        const getMeteoData = () => {
+            // Sélecteurs spécifiques à Météo-France
+            const weatherElements = {
+                temperature: document.querySelector('.tm'),
+                summary: document.querySelector('.day-summary'),
+                forecast: document.querySelector('.forecast-summary'),
+                precipitation: document.querySelector('.rain-summary'),
+                bulletinComplet: document.querySelector('.bulletin-day-long')
+            };
+
+            // Récupération des valeurs
+            const data = {
+                temperature: weatherElements.temperature ? weatherElements.temperature.innerText.trim() : null,
+                summary: weatherElements.summary ? weatherElements.summary.innerText.trim() : null,
+                forecast: weatherElements.forecast ? weatherElements.forecast.innerText.trim() : null,
+                precipitation: weatherElements.precipitation ? weatherElements.precipitation.innerText.trim() : null,
+                bulletin: weatherElements.bulletinComplet ? weatherElements.bulletinComplet.innerText.trim() : null
+            };
+
+            return data;
+        };
+
+        // Extraire les informations de base
+        const title = document.title || "";
+        const url = window.location.href;
+        const meteoData = getMeteoData();
+        
+        // Trouver le conteneur principal des informations météo
+        const mainContainer = document.querySelector('.container-jour-actuel') || 
+                              document.querySelector('.container-previsions') ||
+                              document.querySelector('main');
+                              
+        const mainContent = mainContainer ? mainContainer.innerText : document.body.innerText;
+        
+        // Nettoyer le texte extrait
+        const cleanText = text => {
+            return text
+                .replace(/\s+/g, ' ')
+                .replace(/\n\s*\n/g, '\n\n')
+                .trim();
+        };
+
+        return {
+            title,
+            url,
+            meteoData,
+            content: cleanText(mainContent),
+            fullPageContent: cleanText(document.body.innerText)
+        };
+    });
+};
+
+// Vérifier si une requête concerne la météo
+const isWeatherQuery = (query) => {
+    return /météo|meteo|temps|temperature|climat/i.test(query);
+};
+
+// Extraire le nom de la ville depuis une requête météo
+const extractCityFromQuery = (query) => {
+    // Différents patterns possibles pour capturer le nom de la ville
+    const patterns = [
+        /météo\s+(?:à|a|au|en)\s+([A-Za-zÀ-ÖØ-öø-ÿ\-]+)/i,  // "météo à Paris"
+        /meteo\s+(?:à|a|au|en)\s+([A-Za-zÀ-ÖØ-öø-ÿ\-]+)/i,  // "meteo à Paris"
+        /temps\s+(?:à|a|au|en)\s+([A-Za-zÀ-ÖØ-öø-ÿ\-]+)/i,  // "temps à Paris"
+        /(?:à|a|au|en)\s+([A-Za-zÀ-ÖØ-öø-ÿ\-]+)(?:\s+météo|\s+meteo)/i, // "à Paris météo"
+        /([A-Za-zÀ-ÖØ-öø-ÿ\-]+)(?:\s+météo|\s+meteo)/i      // "Paris météo"
+    ];
+
+    for (const pattern of patterns) {
+        const match = query.match(pattern);
+        if (match && match[1]) {
+            return match[1].trim();
+        }
+    }
+    
+    return null;
+};
+
 // Endpoint pour récupérer un résultat
 app.post("/scrape", async (req, res) => {
     const { query } = req.body;
@@ -159,6 +241,89 @@ app.post("/scrape", async (req, res) => {
         // Désactiver les images et autres ressources pour accélérer le chargement
         await page.route('**/*.{png,jpg,jpeg,gif,svg,pdf,mp4,webp,css,font}', route => route.abort());
 
+        // GESTION SPÉCIALE POUR LES REQUÊTES MÉTÉO
+        if (isWeatherQuery(query)) {
+            const city = extractCityFromQuery(query);
+            
+            if (city) {
+                console.log(`[SCRAPER] 🌦️ Requête météo détectée pour la ville: ${city}`);
+                
+                // Construire l'URL pour Météo-France
+                const normalizedCity = city.toLowerCase()
+                    .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Enlever les accents
+                    .replace(/\s+/g, '-'); // Remplacer les espaces par des tirets
+                
+                const meteoFranceUrl = `https://meteofrance.com/previsions-meteo-france/${normalizedCity}/${normalizedCity}`;
+                console.log(`[SCRAPER] 🔗 Navigation directe vers Météo-France: ${meteoFranceUrl}`);
+
+                try {
+                    await page.goto(meteoFranceUrl, {
+                        timeout: 20000,
+                        waitUntil: 'domcontentloaded'
+                    });
+                    
+                    // Vérifier si nous sommes sur une page 404
+                    const is404 = await page.evaluate(() => {
+                        return window.location.href.includes('/404') || 
+                               document.body.innerText.includes('introuvable') ||
+                               document.body.innerText.includes('page n\'existe pas');
+                    });
+                    
+                    // Si c'est une 404, utiliser la recherche de Météo-France
+                    if (is404) {
+                        console.log(`[SCRAPER] ⚠️ Page ville non trouvée, utilisation de la recherche Météo-France`);
+                        
+                        await page.goto('https://meteofrance.com/', {
+                            timeout: 20000,
+                            waitUntil: 'domcontentloaded'
+                        });
+                        
+                        // Gérer la bannière de cookies si elle apparaît
+                        try {
+                            const cookieSelector = '#didomi-notice-agree-button';
+                            const hasCookieBanner = await page.$(cookieSelector);
+                            if (hasCookieBanner) {
+                                await page.click(cookieSelector);
+                                await page.waitForTimeout(500);
+                            }
+                        } catch (e) {
+                            console.log('[SCRAPER] ℹ️ Pas de bannière de cookies à gérer');
+                        }
+                        
+                        // Attendre le champ de recherche et saisir la ville
+                        try {
+                            await page.waitForSelector('#search', { timeout: 5000 });
+                            await page.type('#search', city);
+                            
+                            // Attendre les suggestions et cliquer sur la première
+                            await page.waitForSelector('.autocomplete-suggestion', { timeout: 5000 });
+                            await page.click('.autocomplete-suggestion');
+                            
+                            // Attendre que la page de résultats se charge
+                            await page.waitForTimeout(2000);
+                        } catch (searchError) {
+                            console.log(`[SCRAPER] ⚠️ Erreur lors de la recherche sur Météo-France: ${searchError.message}`);
+                        }
+                    }
+                    
+                    // Pause pour laisser le DOM se stabiliser
+                    console.log(`[SCRAPER] ⏳ Petite pause pour laisser le DOM se stabiliser`);
+                    await page.waitForTimeout(2000);
+                    
+                    // Extraire les données météo spécifiques
+                    const content = await extractMeteoFranceData(page);
+                    console.log(`[SCRAPER] 📄 Données météo extraites (${content.content.length} caractères)`);
+                    
+                    return res.json(content);
+                } catch (meteoError) {
+                    console.error(`[SCRAPER] ⚠️ Erreur avec Météo-France: ${meteoError.message}`);
+                    console.log('[SCRAPER] ↩️ Repli sur la recherche standard via Brave Search');
+                    // Continuer avec la recherche standard ci-dessous
+                }
+            }
+        }
+
+        // RECHERCHE STANDARD SI CE N'EST PAS UNE REQUÊTE MÉTÉO OU SI LA REQUÊTE MÉTÉO A ÉCHOUÉ
         const searchUrl = `https://search.brave.com/search?q=${encodeURIComponent(query)}`;
         console.log(`[SCRAPER] 🔗 Navigation vers Brave Search : ${searchUrl}`);
 
