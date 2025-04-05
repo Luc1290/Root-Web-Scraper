@@ -7,7 +7,11 @@
     "start": "node index.js"
   },
   "dependencies": {
+    "compression": "^1.8.0",
+    "cors": "^2.8.5",
     "express": "^5.1.0",
+    "express-rate-limit": "^7.5.0",
+    "morgan": "^1.10.0",
     "node-fetch": "^3.3.2",
     "playwright": "^1.51.1"
   }
